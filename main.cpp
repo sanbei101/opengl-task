@@ -1,6 +1,5 @@
-// 修改 main.cpp 的开头部分
-#include "glad/glad.h"    // 改为双引号
-#include "GLFW/glfw3.h"   // 改为双引号
+#include "glad/glad.h"
+#include <GLFW/glfw3.h>
 #include <iostream>
 
 // 顶点着色器源码
