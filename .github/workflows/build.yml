@@ -41,7 +41,7 @@ jobs:
       # 安装依赖 (Windows 使用 run-vcpkg)
       - name: Install dependencies (Windows with vcpkg)
         if: runner.os == 'Windows'
-        uses: lukka/run-vcpkg@latest
+        uses: lukka/run-vcpkg@v11
         with:
           vcpkgArguments: 'glfw3:x64-windows glm:x64-windows'
 
