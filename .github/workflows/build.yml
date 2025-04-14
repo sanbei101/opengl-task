@@ -66,4 +66,6 @@ jobs:
         with:
           name: ${{ matrix.os }}-OpenGLTask
           path: |
-            build/**/task*${{ runner.os == 'Windows' && '.exe' || '' }}
+            build/**/task*
+          exclude: |
+            build/CMakeFiles/**
