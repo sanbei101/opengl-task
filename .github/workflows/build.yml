@@ -50,10 +50,17 @@ jobs:
         shell: cmd
 
       # 4. 配置 CMake（Windows 需要特殊处理）
-      - name: Configure CMake
+      - name: Configure CMake (Windows)
+        if: runner.os == 'Windows'
         run: |
-          cmake -S . -B build ${{ runner.os == 'Windows' && '-DCMAKE_TOOLCHAIN_FILE=$env:CMAKE_TOOLCHAIN_FILE' || '' }}
+          cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}\vcpkg\scripts\buildsystems\vcpkg.cmake"
+        shell: pwsh
 
+      - name: Configure CMake (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          cmake -S . -B build
+          
       # 编译项目
       - name: Build
         run: cmake --build build --config Release
