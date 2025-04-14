@@ -1,6 +1,7 @@
 {
     "name": "opengl-task",
     "version-string": "1.0.0",
+    "builtin-baseline": "9aa0650e5c8d23fe66701bafb3ec03ac732a3ff1",
     "dependencies": [
       "glfw3",
       "glm"
