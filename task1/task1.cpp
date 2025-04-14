@@ -1,4 +1,4 @@
-#include <glad/glad.h>
+#include "glad/glad.h"
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -7,13 +7,10 @@
 #include <iostream>
 #include <vector>
 #include <string>
-// #include <fstream> // 不再需要
-// #include <sstream> // 不再需要
 #include <cmath>
-#include <map> // To store window data
+#include <map>
 
-#ifndef M_PI // 定义 PI (如果 cmath 中没有)
-#define M_PI 3.14159265358979323846
+#ifndef M_PI
 #endif
 
 // -- 着色器源码 --
