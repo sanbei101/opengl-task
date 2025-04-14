@@ -38,29 +38,25 @@ jobs:
           brew update || true
           brew install glfw glm || true
 
-      - name: Install dependencies (Windows)
+      # 安装依赖 (Windows 使用 run-vcpkg)
+      - name: Install dependencies (Windows with vcpkg)
         if: runner.os == 'Windows'
-        run: |
-          git clone https://github.com/microsoft/vcpkg --depth 1
-          cd vcpkg
-          .\bootstrap-vcpkg.bat -disableMetrics
-          .\vcpkg integrate install
-          .\vcpkg install glfw3:x64-windows glm:x64-windows
-          echo "CMAKE_TOOLCHAIN_FILE=$PWD\vcpkg\scripts\buildsystems\vcpkg.cmake" >> $GITHUB_ENV
-        shell: cmd
+        uses: lukka/run-vcpkg@latest
+        with:
+          vcpkgArguments: 'glfw3:x64-windows glm:x64-windows'
 
-      # 4. 配置 CMake（Windows 需要特殊处理）
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
         run: |
-          cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}\vcpkg\scripts\buildsystems\vcpkg.cmake"
+          cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake"
         shell: pwsh
 
+      # 配置 CMake (Linux/macOS)
       - name: Configure CMake (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
           cmake -S . -B build
-          
+
       # 编译项目
       - name: Build
         run: cmake --build build --config Release
