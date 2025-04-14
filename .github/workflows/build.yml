@@ -1,0 +1,55 @@
+name: Build OpenGLTask
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      # 检出代码
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 设置 CMake
+      - name: Set up CMake
+        uses: lukka/get-cmake@latest
+
+      # 安装依赖 (Linux 使用 apt，macOS 使用 brew)
+      - name: Install dependencies (Linux/macOS)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update || true
+          sudo apt-get install -y libglfw3-dev libglm-dev || true
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update || true
+          brew install glfw glm || true
+
+      # 配置和生成构建文件
+      - name: Configure CMake
+        run: cmake -S . -B build
+
+      # 编译项目
+      - name: Build
+        run: cmake --build build --config Release
+
+      # 保存生成的可执行文件
+      - name: Upload executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-OpenGLTask
+          path: |
+            build/task1${{ runner.os == 'Windows' && '.exe' || '' }}
