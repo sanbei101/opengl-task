@@ -38,9 +38,21 @@ jobs:
           brew update || true
           brew install glfw glm || true
 
-      # 配置和生成构建文件
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          git clone https://github.com/microsoft/vcpkg --depth 1
+          cd vcpkg
+          .\bootstrap-vcpkg.bat -disableMetrics
+          .\vcpkg integrate install
+          .\vcpkg install glfw3:x64-windows glm:x64-windows
+          echo "CMAKE_TOOLCHAIN_FILE=$PWD\vcpkg\scripts\buildsystems\vcpkg.cmake" >> $GITHUB_ENV
+        shell: cmd
+
+      # 4. 配置 CMake（Windows 需要特殊处理）
       - name: Configure CMake
-        run: cmake -S . -B build
+        run: |
+          cmake -S . -B build ${{ runner.os == 'Windows' && '-DCMAKE_TOOLCHAIN_FILE=$env:CMAKE_TOOLCHAIN_FILE' || '' }}
 
       # 编译项目
       - name: Build
@@ -52,4 +64,4 @@ jobs:
         with:
           name: ${{ matrix.os }}-OpenGLTask
           path: |
-            build/task1${{ runner.os == 'Windows' && '.exe' || '' }}
+            build/task*${{ runner.os == 'Windows' && '.exe' || '' }}
