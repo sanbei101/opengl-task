@@ -67,5 +67,4 @@ jobs:
           name: ${{ matrix.os }}-OpenGLTask
           path: |
             build/**/task*
-          exclude: |
-            build/CMakeFiles/**
+            !build/CMakeFiles/**
