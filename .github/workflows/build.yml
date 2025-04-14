@@ -63,8 +63,18 @@ jobs:
       # 保存生成的可执行文件
       - name: Upload executables
         uses: actions/upload-artifact@v4
+        if: runner.os != 'Windows'
         with:
           name: ${{ matrix.os }}-OpenGLTask
           path: |
             build/**/task*
             !build/CMakeFiles/**
+      
+      # 保存生成的可执行文件 (Windows)
+      - name: Upload executables(windows)
+        uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: ${{ matrix.os }}-OpenGLTask
+          path: |
+            build/Release/*
