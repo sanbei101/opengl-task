@@ -7,8 +7,6 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
-#include <GL/gl.h>
-#include <GL/gl.h>
 
 // 函数声明
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
