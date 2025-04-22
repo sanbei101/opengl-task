@@ -12,5 +12,7 @@ find_package(glm REQUIRED)
 
 add_executable(task1 task1/task1.cpp)
 add_executable(task2 task2/task2.cpp)
+add_executable(task4 task4/task4.cpp)
 target_link_libraries(task1 PRIVATE glad glfw)
 target_link_libraries(task2 PRIVATE glad glfw)
+target_link_libraries(task4 PRIVATE glad glfw)
