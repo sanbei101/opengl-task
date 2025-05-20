@@ -17,13 +17,16 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow *window);
 unsigned int compileShader(unsigned int type, const char* source);
 unsigned int createShaderProgram(const char* vertexSource, const char* fragmentSource);
+std::vector<float> createSphere(float radius, int sectorCount, int stackCount);
+void drawOrbit(unsigned int shaderProgram, float radius, const glm::mat4& view, const glm::mat4& projection, float tiltAngle = 0.0f, const glm::vec3& tiltAxis = glm::vec3(1.0f, 0.0f, 0.0f));
+void drawRing(unsigned int shaderProgram, float innerRadius, float outerRadius, const glm::mat4& view, const glm::mat4& projection, const glm::mat4& planetModelMatrix, float tiltAngle, const glm::vec3& tiltAxis);
+
 
 // 窗口设置
-const unsigned int SCR_WIDTH = 800;
-const unsigned int SCR_HEIGHT = 600;
+const unsigned int SCR_WIDTH = 1200; // 增加窗口宽度以便更好地显示
+const unsigned int SCR_HEIGHT = 800; // 增加窗口高度
 
 // 顶点着色器源码 (GLSL)
-// 处理顶点位置变换
 const char *vertexShaderSource = R"(
     #version 330 core
     layout (location = 0) in vec3 aPos; // 顶点位置输入
@@ -31,18 +34,15 @@ const char *vertexShaderSource = R"(
     uniform mat4 model;      // 模型矩阵 (物体局部坐标 -> 世界坐标)
     uniform mat4 view;       // 视图矩阵 (世界坐标 -> 观察空间)
     uniform mat4 projection; // 投影矩阵 (观察空间 -> 裁剪空间)
-    uniform float pointSize; // 点大小
 
     void main()
     {
         // 将顶点位置通过 MVP 矩阵变换到裁剪空间
         gl_Position = projection * view * model * vec4(aPos, 1.0);
-        gl_PointSize = pointSize; // 设置点大小
     }
 )";
 
 // 片段着色器源码 (GLSL)
-// 设置片段颜色
 const char *fragmentShaderSource = R"(
     #version 330 core
     out vec4 FragColor; // 输出的颜色
@@ -56,407 +56,469 @@ const char *fragmentShaderSource = R"(
     }
 )";
 
-// 全局变量，用于创建球体
+// 创建球体顶点数据
 std::vector<float> createSphere(float radius, int sectorCount, int stackCount) {
     std::vector<float> vertices;
-    
-    float x, y, z, xy;                  // 顶点坐标
+    float x, y, z, xy;
     float sectorStep = 2 * M_PI / sectorCount;
     float stackStep = M_PI / stackCount;
     float sectorAngle, stackAngle;
 
-    // 生成球体顶点
     for(int i = 0; i <= stackCount; ++i) {
         stackAngle = M_PI / 2 - i * stackStep;
         xy = radius * cosf(stackAngle);
         z = radius * sinf(stackAngle);
-
         for(int j = 0; j <= sectorCount; ++j) {
             sectorAngle = j * sectorStep;
-            
-            // 顶点位置
             x = xy * cosf(sectorAngle);
             y = xy * sinf(sectorAngle);
-            
             vertices.push_back(x);
             vertices.push_back(y);
             vertices.push_back(z);
         }
     }
-
     return vertices;
 }
 
-void drawOrbit(unsigned int shaderProgram, float radius, glm::mat4& view, glm::mat4& projection, 
-               float tiltAngle = 0.0f, glm::vec3 tiltAxis = glm::vec3(1.0f, 0.0f, 0.0f)) {
-    // 获取uniform变量位置
+// 绘制轨道
+void drawOrbit(unsigned int shaderProgram, float radius, const glm::mat4& view, const glm::mat4& projection, float tiltAngle, const glm::vec3& tiltAxis) {
     unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
     unsigned int viewLoc = glGetUniformLocation(shaderProgram, "view");
     unsigned int projLoc = glGetUniformLocation(shaderProgram, "projection");
     unsigned int colorLoc = glGetUniformLocation(shaderProgram, "objectColor");
-    unsigned int pointSizeLoc = glGetUniformLocation(shaderProgram, "pointSize");
-    
-    // 设置视图和投影矩阵
+
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
-    
-    // 设置轨道颜色和点大小
-    glUniform3f(colorLoc, 0.5f, 0.5f, 0.5f);  // 轨道灰色
-    glUniform1f(pointSizeLoc, 1.0f);
-    
-    // 创建模型矩阵
+    glUniform3f(colorLoc, 0.3f, 0.3f, 0.3f);  // 轨道颜色调暗一些
+
     glm::mat4 model = glm::mat4(1.0f);
     if (tiltAngle != 0.0f) {
         model = glm::rotate(model, tiltAngle, tiltAxis);
     }
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
-    // 生成轨道顶点
     const int segments = 100;
     std::vector<float> orbitVertices;
-    for (int i = 0; i < segments; ++i) {
+    for (int i = 0; i <= segments; ++i) { // Use <= to close the loop
         float theta = 2.0f * M_PI * float(i) / float(segments);
         float x = radius * cosf(theta);
-        float z = radius * sinf(theta);
+        float z = radius * sinf(theta); // Orbits are generally in XZ plane relative to the sun
         orbitVertices.push_back(x);
         orbitVertices.push_back(0.0f);
         orbitVertices.push_back(z);
     }
 
-    // 创建并绑定VAO/VBO
     unsigned int orbitVAO, orbitVBO;
     glGenVertexArrays(1, &orbitVAO);
     glGenBuffers(1, &orbitVBO);
-
     glBindVertexArray(orbitVAO);
     glBindBuffer(GL_ARRAY_BUFFER, orbitVBO);
     glBufferData(GL_ARRAY_BUFFER, orbitVertices.size() * sizeof(float), orbitVertices.data(), GL_STATIC_DRAW);
-
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    // 绘制
-    glDrawArrays(GL_LINE_LOOP, 0, segments);
+    glDrawArrays(GL_LINE_STRIP, 0, segments + 1); // Use GL_LINE_STRIP for non-closed loop if segments is not +1
 
-    // 清理
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
     glDeleteBuffers(1, &orbitVBO);
     glDeleteVertexArrays(1, &orbitVAO);
 }
 
+// 绘制土星环
+void drawRing(unsigned int shaderProgram, float innerRadius, float outerRadius, 
+              const glm::mat4& view, const glm::mat4& projection, 
+              const glm::mat4& planetWorldMatrix, // Pass the planet's full world matrix
+              float tiltAngle, const glm::vec3& tiltAxis) {
+
+    unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
+    unsigned int viewLoc = glGetUniformLocation(shaderProgram, "view");
+    unsigned int projLoc = glGetUniformLocation(shaderProgram, "projection");
+    unsigned int colorLoc = glGetUniformLocation(shaderProgram, "objectColor");
+
+    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+    glUniform3f(colorLoc, 0.6f, 0.6f, 0.5f); // 环的颜色 (淡黄色)
+
+    glm::mat4 ringModel = planetWorldMatrix; // Start with the planet's transformation
+    // The ring itself is flat, its orientation comes from the planet's tilt
+    // If the planet has an axial tilt, the ring should align with its equator
+    // The planetModelMatrix already includes orbital position and axial tilt.
+    // We just need to scale and draw the ring in the planet's XY plane.
+
+    glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(ringModel));
+
+
+    const int segments = 72; // 环的段数
+    std::vector<float> ringVertices;
+    for (int i = 0; i <= segments; ++i) {
+        float angle = 2.0f * M_PI * float(i) / float(segments);
+        // 外环顶点
+        ringVertices.push_back(outerRadius * cosf(angle));
+        ringVertices.push_back(outerRadius * sinf(angle));
+        ringVertices.push_back(0.0f); // 环在XY平面上
+        // 内环顶点
+        ringVertices.push_back(innerRadius * cosf(angle));
+        ringVertices.push_back(innerRadius * sinf(angle));
+        ringVertices.push_back(0.0f);
+    }
+
+    unsigned int ringVAO, ringVBO;
+    glGenVertexArrays(1, &ringVAO);
+    glGenBuffers(1, &ringVBO);
+    glBindVertexArray(ringVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, ringVBO);
+    glBufferData(GL_ARRAY_BUFFER, ringVertices.size() * sizeof(float), ringVertices.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, (segments + 1) * 2);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+    glDeleteBuffers(1, &ringVBO);
+    glDeleteVertexArrays(1, &ringVAO);
+}
+
+
 int main()
 {
     // 1. 初始化 GLFW
-    // -------------------------------------
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW" << std::endl;
         return -1;
     }
-    // 设置 OpenGL 版本 (这里使用 3.3) 和核心模式
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
 #ifdef __APPLE__
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // Mac OS X 需要
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
 
     // 2. 创建 GLFW 窗口
-    // -------------------------------------
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "简单太阳系模拟", NULL, NULL);
-    if (window == NULL)
-    {
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "更真实的太阳系模拟", NULL, NULL);
+    if (window == NULL) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
         return -1;
     }
-    // 将窗口的 OpenGL 上下文设置为当前线程的主上下文
     glfwMakeContextCurrent(window);
-    // 注册窗口大小变化的回调函数
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
     // 3. 初始化 GLAD
-    // -------------------------------------
-    // 加载所有 OpenGL 函数指针
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
-    {
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cerr << "Failed to initialize GLAD" << std::endl;
-        glfwTerminate(); // 如果 GLAD 初始化失败，也需要终止 GLFW
+        glfwTerminate();
         return -1;
     }
 
     // 4. 构建和编译着色器程序
-    // -------------------------------------
     unsigned int shaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
 
-    // 5. 设置顶点数据和缓冲区
-    // -------------------------------------
-    // 生成球体顶点数据
-    std::vector<float> sphereVertices = createSphere(1.0f, 36, 18);
+    // 5. 设置顶点数据和缓冲区 (为单位球体，实际大小通过model矩阵控制)
+    std::vector<float> sphereVertices = createSphere(1.0f, 36, 18); // 单位球体
     
-    // 创建顶点缓冲对象 (VBO) 和顶点数组对象 (VAO)
     unsigned int VBO, VAO;
-    glGenVertexArrays(1, &VAO); // 生成 VAO
-    glGenBuffers(1, &VBO);      // 生成 VBO
-
-    glBindVertexArray(VAO); // 绑定 VAO
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBO); // 绑定 VBO 到 GL_ARRAY_BUFFER 目标
-    // 将顶点数据复制到 VBO
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, sphereVertices.size() * sizeof(float), sphereVertices.data(), GL_STATIC_DRAW);
-
-    // 设置顶点属性指针
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0); // 启用顶点属性 location 0
-
-    // 解绑 VBO 和 VAO (非必须，但好习惯)
+    glEnableVertexAttribArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
-    // 启用深度测试，这样物体的前后关系才能正确显示
     glEnable(GL_DEPTH_TEST);
-    // 允许在着色器中设置点的大小
-    glEnable(GL_PROGRAM_POINT_SIZE);
-    // 启用反锯齿
     glEnable(GL_LINE_SMOOTH);
     glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
+    glLineWidth(1.0f); // 设置轨道线宽
 
-    // 6. 渲染循环 (Render Loop)
-    // -------------------------------------
+    // 6. 渲染循环
     while (!glfwWindowShouldClose(window))
     {
-        // a. 处理输入
         processInput(window);
 
-        // b. 渲染指令
-        // 清除颜色缓冲和深度缓冲
-        glClearColor(0.02f, 0.02f, 0.05f, 1.0f); // 更暗的背景，像深太空
+        glClearColor(0.01f, 0.01f, 0.02f, 1.0f); // 更深的太空背景
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // 激活着色器程序
         glUseProgram(shaderProgram);
 
-        // 获取 uniform 变量的位置
         unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
         unsigned int viewLoc = glGetUniformLocation(shaderProgram, "view");
         unsigned int projLoc = glGetUniformLocation(shaderProgram, "projection");
         unsigned int colorLoc = glGetUniformLocation(shaderProgram, "objectColor");
-        unsigned int pointSizeLoc = glGetUniformLocation(shaderProgram, "pointSize");
 
-        // 创建变换矩阵
-        // 投影矩阵 (透视投影)
-        glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 200.0f); // 增加 far plane
         glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
-        // 视图矩阵 (摄像机)
-        // 让摄像机稍微向后并向上移动一点，看向原点
-        glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 15.0f, 30.0f), // 摄像机位置
-                                     glm::vec3(0.0f, 0.0f, 0.0f), // 目标位置 (原点)
+        // 调整摄像机位置以容纳更大的太阳系
+        glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 30.0f, 60.0f), // 摄像机位置 (更高更远)
+                                     glm::vec3(0.0f, 0.0f, 0.0f),  // 目标位置
                                      glm::vec3(0.0f, 1.0f, 0.0f)); // 上向量
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
-        float timeValue = (float)glfwGetTime(); // 获取当前时间，用于动画
-        
-        // 绘制轨道
-        // 行星1轨道
-        float orbitRadius1 = 10.0f;
-        glLineWidth(1.0f);
-        drawOrbit(shaderProgram, orbitRadius1, view, projection);
-        
-        // 行星2轨道
-        float orbitRadius2 = 16.0f;
-        drawOrbit(shaderProgram, orbitRadius2, view, projection);
-        
-        // 行星3轨道（带倾斜）
-        float orbitRadius3 = 22.0f;
-        drawOrbit(shaderProgram, orbitRadius3, view, projection, glm::radians(20.0f));
-        
-        // 绑定 VAO (因为我们只有一个物体类型，所以在循环外绑定一次也可以)
-        glBindVertexArray(VAO);
+        float timeValue = (float)glfwGetTime();
+
+        // 行星参数 (半径单位：任意，轨道半径单位：任意，速度：相对值)
+        // 太阳
+        float sunRadius = 2.5f;
+        float sunRotationSpeed = 0.05f;
+
+        // 水星 (Mercury)
+        float mercuryOrbitRadius = 5.0f;
+        float mercuryRadius = 0.2f;
+        float mercuryOrbitalSpeed = 1.0f * 0.7f; // 相对地球更快
+        float mercuryRotationSpeed = 0.1f;
+        glm::vec3 mercuryColor = glm::vec3(0.6f, 0.6f, 0.6f); // 灰色
+
+        // 金星 (Venus)
+        float venusOrbitRadius = 8.0f;
+        float venusRadius = 0.5f;
+        float venusOrbitalSpeed = 0.7f * 0.7f;
+        float venusRotationSpeed = -0.05f; // 缓慢逆行自转
+        float venusAxialTilt = glm::radians(177.0f); // 大倾角
+        glm::vec3 venusColor = glm::vec3(0.9f, 0.85f, 0.7f); // 黄白色
+
+        // 地球 (Earth)
+        float earthOrbitRadius = 12.0f;
+        float earthRadius = 0.6f;
+        float earthOrbitalSpeed = 0.5f * 0.7f;
+        float earthRotationSpeed = 1.0f;
+        float earthAxialTilt = glm::radians(23.5f);
+        glm::vec3 earthColor = glm::vec3(0.2f, 0.4f, 0.8f); // 蓝色
+
+        // 月球 (Moon)
+        float moonOrbitRadius = 1.2f; // 相对地球
+        float moonRadius = 0.15f;
+        float moonOrbitalSpeed = 2.5f; // 相对地球公转
+        glm::vec3 moonColor = glm::vec3(0.7f, 0.7f, 0.7f); // 浅灰色
+
+        // 火星 (Mars)
+        float marsOrbitRadius = 17.0f;
+        float marsRadius = 0.35f;
+        float marsOrbitalSpeed = 0.35f * 0.7f;
+        float marsRotationSpeed = 0.9f;
+        float marsAxialTilt = glm::radians(25.0f);
+        glm::vec3 marsColor = glm::vec3(0.8f, 0.3f, 0.1f); // 红色
+
+        // 木星 (Jupiter)
+        float jupiterOrbitRadius = 25.0f;
+        float jupiterRadius = 1.5f; // 最大行星
+        float jupiterOrbitalSpeed = 0.15f * 0.7f;
+        float jupiterRotationSpeed = 2.2f; // 快速自转
+        float jupiterAxialTilt = glm::radians(3.0f);
+        glm::vec3 jupiterColor = glm::vec3(0.8f, 0.7f, 0.5f); // 橙棕色
+
+        // 土星 (Saturn)
+        float saturnOrbitRadius = 35.0f;
+        float saturnRadius = 1.2f;
+        float saturnOrbitalSpeed = 0.1f * 0.7f;
+        float saturnRotationSpeed = 1.9f;
+        float saturnAxialTilt = glm::radians(27.0f); // 轴倾角
+        float saturnOrbitalTilt = glm::radians(2.5f); // 轨道倾角 (相对黄道面)
+        glm::vec3 saturnColor = glm::vec3(0.9f, 0.8f, 0.6f); // 淡黄色
+        float saturnRingInnerRadius = saturnRadius * 1.2f;
+        float saturnRingOuterRadius = saturnRadius * 2.2f;
+
+
+        // 绘制所有轨道 (除了太阳)
+        drawOrbit(shaderProgram, mercuryOrbitRadius, view, projection);
+        drawOrbit(shaderProgram, venusOrbitRadius, view, projection);
+        drawOrbit(shaderProgram, earthOrbitRadius, view, projection);
+        drawOrbit(shaderProgram, marsOrbitRadius, view, projection);
+        drawOrbit(shaderProgram, jupiterOrbitRadius, view, projection);
+        // 土星轨道需要考虑其轨道倾角
+        drawOrbit(shaderProgram, saturnOrbitRadius, view, projection, saturnOrbitalTilt, glm::vec3(1.0f, 0.0f, 0.0f));
+
+
+        glBindVertexArray(VAO); // 绑定一次球体VAO，用于所有球形天体
 
         // --- 绘制太阳 ---
-        glm::mat4 model = glm::mat4(1.0f); // 初始化模型矩阵为单位矩阵
-        model = glm::scale(model, glm::vec3(3.0f)); // 放大太阳
-        // 添加太阳自转
-        model = glm::rotate(model, timeValue * 0.2f, glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::rotate(model, timeValue * sunRotationSpeed, glm::vec3(0.0f, 1.0f, 0.0f)); // 太阳自转
+        model = glm::scale(model, glm::vec3(sunRadius));
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-        glUniform3f(colorLoc, 1.0f, 0.7f, 0.0f); // 设置太阳颜色为橙黄色
-        glUniform1f(pointSizeLoc, 40.0f); // 设置太阳的点大小
-        glDrawArrays(GL_TRIANGLES, 0, sphereVertices.size() / 3); // 绘制球体
-
-        // --- 绘制行星 ---
-        
-        // 行星 1 (例如：地球)
-        float speed1 = 0.5f;
-        float angle1 = timeValue * speed1;
-        float selfRotationSpeed1 = 1.0f; // 地球自转速度
-        
-        glm::mat4 planetModel1 = glm::mat4(1.0f);
-        // 1. 旋转（轨道运动）
-        planetModel1 = glm::rotate(planetModel1, angle1, glm::vec3(0.0f, 1.0f, 0.0f)); // 绕 Y 轴旋转
-        // 2. 平移到轨道半径处
-        planetModel1 = glm::translate(planetModel1, glm::vec3(orbitRadius1, 0.0f, 0.0f));
-        // 保存行星位置用于月球
-        glm::vec3 planetPosition = glm::vec3(
-            planetModel1[3][0], 
-            planetModel1[3][1], 
-            planetModel1[3][2]
-        );
-        // 3. 添加自转
-        planetModel1 = glm::rotate(planetModel1, timeValue * selfRotationSpeed1, glm::vec3(0.0f, 1.0f, 0.0f));
-        // 4. 倾斜地球自转轴
-        planetModel1 = glm::rotate(planetModel1, glm::radians(23.5f), glm::vec3(0.0f, 0.0f, 1.0f));
-        // 5. 缩放行星大小
-        planetModel1 = glm::scale(planetModel1, glm::vec3(1.0f));
-        
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(planetModel1));
-        glUniform3f(colorLoc, 0.0f, 0.5f, 1.0f); // 设置行星1颜色为蓝色
-        glUniform1f(pointSizeLoc, 20.0f);
+        glUniform3f(colorLoc, 1.0f, 0.8f, 0.0f); // 太阳颜色
         glDrawArrays(GL_TRIANGLES, 0, sphereVertices.size() / 3);
 
-        // 绘制月球
-        float moonOrbitRadius = 2.0f;
-        float moonSpeed = 3.0f;
-        float moonAngle = timeValue * moonSpeed;
-        
-        glm::mat4 moonModel = glm::mat4(1.0f);
-        // 使用行星位置作为起点
-        moonModel[3][0] = planetPosition.x;
-        moonModel[3][1] = planetPosition.y;
-        moonModel[3][2] = planetPosition.z;
-        // 月球轨道旋转
-        moonModel = glm::rotate(moonModel, moonAngle, glm::vec3(0.0f, 1.0f, 0.0f));
-        // 平移到月球轨道半径
+        // --- 绘制水星 ---
+        glm::mat4 mercuryModel = glm::mat4(1.0f);
+        mercuryModel = glm::rotate(mercuryModel, timeValue * mercuryOrbitalSpeed, glm::vec3(0.0f, 1.0f, 0.0f)); // 公转
+        mercuryModel = glm::translate(mercuryModel, glm::vec3(mercuryOrbitRadius, 0.0f, 0.0f));
+        mercuryModel = glm::rotate(mercuryModel, timeValue * mercuryRotationSpeed, glm::vec3(0.0f, 1.0f, 0.0f)); // 自转
+        mercuryModel = glm::scale(mercuryModel, glm::vec3(mercuryRadius));
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(mercuryModel));
+        glUniform3fv(colorLoc, 1, glm::value_ptr(mercuryColor));
+        glDrawArrays(GL_TRIANGLES, 0, sphereVertices.size() / 3);
+
+        // --- 绘制金星 ---
+        glm::mat4 venusModel = glm::mat4(1.0f);
+        venusModel = glm::rotate(venusModel, timeValue * venusOrbitalSpeed, glm::vec3(0.0f, 1.0f, 0.0f)); // 公转
+        venusModel = glm::translate(venusModel, glm::vec3(venusOrbitRadius, 0.0f, 0.0f));
+        venusModel = glm::rotate(venusModel, venusAxialTilt, glm::vec3(0.0f, 0.0f, 1.0f)); // 轴倾角
+        venusModel = glm::rotate(venusModel, timeValue * venusRotationSpeed, glm::vec3(0.0f, 1.0f, 0.0f)); // 自转
+        venusModel = glm::scale(venusModel, glm::vec3(venusRadius));
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(venusModel));
+        glUniform3fv(colorLoc, 1, glm::value_ptr(venusColor));
+        glDrawArrays(GL_TRIANGLES, 0, sphereVertices.size() / 3);
+
+        // --- 绘制地球 ---
+        glm::mat4 earthModel = glm::mat4(1.0f);
+        earthModel = glm::rotate(earthModel, timeValue * earthOrbitalSpeed, glm::vec3(0.0f, 1.0f, 0.0f)); // 公转
+        earthModel = glm::translate(earthModel, glm::vec3(earthOrbitRadius, 0.0f, 0.0f));
+        // 保存地球的世界坐标变换，用于月球
+        glm::mat4 earthWorldModel = earthModel; 
+        earthModel = glm::rotate(earthModel, earthAxialTilt, glm::vec3(0.0f, 0.0f, 1.0f)); // 地球轴倾角 (先倾斜再自转)
+        earthModel = glm::rotate(earthModel, timeValue * earthRotationSpeed, glm::vec3(0.0f, 1.0f, 0.0f)); // 地球自转
+        earthModel = glm::scale(earthModel, glm::vec3(earthRadius));
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(earthModel));
+        glUniform3fv(colorLoc, 1, glm::value_ptr(earthColor));
+        glDrawArrays(GL_TRIANGLES, 0, sphereVertices.size() / 3);
+
+        // --- 绘制月球 ---
+        glm::mat4 moonModel = earthWorldModel; // 从地球的世界变换开始
+        moonModel = glm::rotate(moonModel, timeValue * moonOrbitalSpeed, glm::vec3(0.1f, 1.0f, 0.1f)); // 月球公转 (可以稍微倾斜轨道)
         moonModel = glm::translate(moonModel, glm::vec3(moonOrbitRadius, 0.0f, 0.0f));
-        // 缩放月球大小
-        moonModel = glm::scale(moonModel, glm::vec3(0.3f));
-        
+        // 月球通常是潮汐锁定的，可以不加独立自转或使其与公转同步
+        moonModel = glm::scale(moonModel, glm::vec3(moonRadius));
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(moonModel));
-        glUniform3f(colorLoc, 0.8f, 0.8f, 0.8f); // 设置月球颜色为浅灰色
-        glUniform1f(pointSizeLoc, 8.0f);
+        glUniform3fv(colorLoc, 1, glm::value_ptr(moonColor));
         glDrawArrays(GL_TRIANGLES, 0, sphereVertices.size() / 3);
 
-        // 行星 2 (例如：火星)
-        float speed2 = 0.35f;
-        float angle2 = timeValue * speed2;
-        float selfRotationSpeed2 = 0.8f;
-        
-        glm::mat4 planetModel2 = glm::mat4(1.0f);
-        planetModel2 = glm::rotate(planetModel2, angle2, glm::vec3(0.0f, 1.0f, 0.0f));
-        planetModel2 = glm::translate(planetModel2, glm::vec3(orbitRadius2, 0.0f, 0.0f));
-        // 添加自转
-        planetModel2 = glm::rotate(planetModel2, timeValue * selfRotationSpeed2, glm::vec3(0.0f, 1.0f, 0.0f));
-        planetModel2 = glm::scale(planetModel2, glm::vec3(0.8f));
-        
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(planetModel2));
-        glUniform3f(colorLoc, 1.0f, 0.4f, 0.2f); // 设置行星2颜色为橙红色
-        glUniform1f(pointSizeLoc, 18.0f);
+        // --- 绘制火星 ---
+        glm::mat4 marsModel = glm::mat4(1.0f);
+        marsModel = glm::rotate(marsModel, timeValue * marsOrbitalSpeed, glm::vec3(0.0f, 1.0f, 0.0f));
+        marsModel = glm::translate(marsModel, glm::vec3(marsOrbitRadius, 0.0f, 0.0f));
+        marsModel = glm::rotate(marsModel, marsAxialTilt, glm::vec3(0.0f, 0.0f, 1.0f));
+        marsModel = glm::rotate(marsModel, timeValue * marsRotationSpeed, glm::vec3(0.0f, 1.0f, 0.0f));
+        marsModel = glm::scale(marsModel, glm::vec3(marsRadius));
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(marsModel));
+        glUniform3fv(colorLoc, 1, glm::value_ptr(marsColor));
         glDrawArrays(GL_TRIANGLES, 0, sphereVertices.size() / 3);
 
-        // 行星 3 (例如：带倾斜轨道的行星)
-        float speed3 = 0.25f;
-        float angle3 = timeValue * speed3;
-        float selfRotationSpeed3 = 0.6f;
-        
-        glm::mat4 planetModel3 = glm::mat4(1.0f);
-        // 先倾斜轨道平面
-        planetModel3 = glm::rotate(planetModel3, glm::radians(20.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-        // 再进行轨道旋转
-        planetModel3 = glm::rotate(planetModel3, angle3, glm::vec3(0.0f, 1.0f, 0.0f));
-        // 平移
-        planetModel3 = glm::translate(planetModel3, glm::vec3(orbitRadius3, 0.0f, 0.0f));
-        // 添加自转
-        planetModel3 = glm::rotate(planetModel3, timeValue * selfRotationSpeed3, glm::vec3(0.2f, 1.0f, 0.0f));
-        // 缩放
-        planetModel3 = glm::scale(planetModel3, glm::vec3(1.2f));
-        
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(planetModel3));
-        glUniform3f(colorLoc, 0.7f, 0.2f, 0.9f); // 设置行星3颜色为紫色
-        glUniform1f(pointSizeLoc, 24.0f);
+        // --- 绘制木星 ---
+        glm::mat4 jupiterModel = glm::mat4(1.0f);
+        jupiterModel = glm::rotate(jupiterModel, timeValue * jupiterOrbitalSpeed, glm::vec3(0.0f, 1.0f, 0.0f));
+        jupiterModel = glm::translate(jupiterModel, glm::vec3(jupiterOrbitRadius, 0.0f, 0.0f));
+        jupiterModel = glm::rotate(jupiterModel, jupiterAxialTilt, glm::vec3(0.0f, 0.0f, 1.0f));
+        jupiterModel = glm::rotate(jupiterModel, timeValue * jupiterRotationSpeed, glm::vec3(0.0f, 1.0f, 0.0f));
+        jupiterModel = glm::scale(jupiterModel, glm::vec3(jupiterRadius));
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(jupiterModel));
+        glUniform3fv(colorLoc, 1, glm::value_ptr(jupiterColor));
         glDrawArrays(GL_TRIANGLES, 0, sphereVertices.size() / 3);
 
-        // c. 交换缓冲区和检查事件
-        glfwSwapBuffers(window); // 交换前后缓冲区，显示渲染结果
-        glfwPollEvents();      // 处理如图形界面事件、键盘鼠标事件等
+        // --- 绘制土星 ---
+        glm::mat4 saturnModel = glm::mat4(1.0f);
+        // 1. 轨道倾斜
+        saturnModel = glm::rotate(saturnModel, saturnOrbitalTilt, glm::vec3(1.0f, 0.0f, 0.0f)); 
+        // 2. 公转
+        saturnModel = glm::rotate(saturnModel, timeValue * saturnOrbitalSpeed, glm::vec3(0.0f, 1.0f, 0.0f)); // 绕Y轴公转
+        // 3. 平移到轨道半径
+        saturnModel = glm::translate(saturnModel, glm::vec3(saturnOrbitRadius, 0.0f, 0.0f));
+        
+        glm::mat4 saturnWorldModel = saturnModel; // 保存土星不带自转和轴倾斜的变换，用于环
+
+        // 4. 轴倾角 (影响自转轴和环的平面)
+        // 重要：轴倾角应相对于轨道平面。如果轨道本身倾斜了，这个旋转轴也应该相应调整。
+        // 简单起见，我们假设轴倾角是相对于其局部坐标系的Y轴定义的，然后应用到世界变换后的模型上。
+        // 或者，更准确地，先应用轨道变换，然后应用轴倾角，再自转。
+        // 这里的tiltAxis应该是垂直于轨道平面的。对于未倾斜轨道，是(0,0,1)或(1,0,0)。
+        // 对于倾斜轨道，这个轴本身也需要被轨道倾斜变换。
+        // 为了简化，我们将轴倾角旋转应用于已经定位到轨道上的行星。
+        // 旋转轴 (e.g., Z-axis for tilt, then Y-axis for rotation)
+        // The tilt should be around an axis perpendicular to its orbital motion AND its 'up' vector.
+        // A common way is to tilt around its local X or Z axis before self-rotation around Y.
+        saturnModel = glm::rotate(saturnModel, saturnAxialTilt, glm::vec3(cos(timeValue * saturnOrbitalSpeed + M_PI/2.0), 0.0f, sin(timeValue * saturnOrbitalSpeed + M_PI/2.0))); // 倾斜自转轴
+                                                                                                                                                                         // More simply: tilt around a fixed axis like Z if orbit is in XY plane
+                                                                                                                                                                         // For orbit in XZ plane, tilt around X or Z.
+        // Let's use a consistent tilt axis (e.g. local Z axis of the planet AFTER orbital positioning but BEFORE self-rotation)
+        // To make the tilt appear consistent with the orbit, the tilt axis should be chosen carefully.
+        // If orbit is around global Y, and planet moves in XZ plane, tilt can be around local X or Z.
+        // Let's tilt its "spin axis pole" towards/away from the direction of motion or perpendicular to it.
+        // A common convention for axial tilt is rotation around an axis like (1,0,0) or (0,0,1) *before* self-rotation.
+        // The saturnWorldModel already has orbital placement and orbital tilt.
+        // Now apply axial tilt relative to that.
+        
+        glm::mat4 saturnPlanetPart = saturnWorldModel; // Start from here for the planet itself
+        saturnPlanetPart = glm::rotate(saturnPlanetPart, saturnAxialTilt, glm::vec3(1.0f, 0.0f, 0.0f)); // Tilt around its X-axis
+        saturnPlanetPart = glm::rotate(saturnPlanetPart, timeValue * saturnRotationSpeed, glm::vec3(0.0f, 1.0f, 0.0f)); // 自转
+        saturnPlanetPart = glm::scale(saturnPlanetPart, glm::vec3(saturnRadius));
+        
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(saturnPlanetPart));
+        glUniform3fv(colorLoc, 1, glm::value_ptr(saturnColor));
+        glDrawArrays(GL_TRIANGLES, 0, sphereVertices.size() / 3);
+
+        // 绘制土星环 - 环应该与土星的赤道面对齐，即受到轴倾角影响
+        // The ring's model matrix should be based on saturnWorldModel (position in orbit, orbital tilt)
+        // and then apply the *same axial tilt* as Saturn itself.
+        glm::mat4 ringBaseModel = saturnWorldModel;
+        ringBaseModel = glm::rotate(ringBaseModel, saturnAxialTilt, glm::vec3(1.0f, 0.0f, 0.0f)); // Apply same axial tilt
+        // The drawRing function expects the model matrix to position and orient the ring plane.
+        // The vertices of the ring are in its local XY plane.
+        drawRing(shaderProgram, saturnRingInnerRadius, saturnRingOuterRadius, view, projection, ringBaseModel, 0.0f, glm::vec3(0,0,1)); // No additional tilt for drawRing, it's in ringBaseModel
+
+
+        glBindVertexArray(0); // 解绑VAO
+
+        glfwSwapBuffers(window);
+        glfwPollEvents();
     }
 
     // 7. 清理资源
-    // -------------------------------------
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
     glDeleteProgram(shaderProgram);
 
-    glfwTerminate(); // 终止 GLFW，释放资源
+    glfwTerminate();
     return 0;
 }
 
-// 处理输入: 查询 GLFW 是否按下了相关按键，并在本帧做出反应
-void processInput(GLFWwindow *window)
-{
-    // 如果按下 ESC 键，设置窗口的 "ShouldClose" 属性为 true，从而结束循环
+void processInput(GLFWwindow *window) {
     if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 }
 
-// 当窗口大小改变时，这个回调函数会被调用
-void framebuffer_size_callback(GLFWwindow* window, int width, int height)
-{
-    // 确保视口匹配新的窗口尺寸
-    // 注意：对于高 DPI 屏幕，width 和 height 可能远大于原始的 SCR_WIDTH 和 SCR_HEIGHT
+void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
 }
 
-// 编译单个着色器
 unsigned int compileShader(unsigned int type, const char* source) {
-    unsigned int id = glCreateShader(type); // 创建着色器对象
-    glShaderSource(id, 1, &source, nullptr); // 附加源码
-    glCompileShader(id); // 编译
-
-    // 检查编译错误
+    unsigned int id = glCreateShader(type);
+    glShaderSource(id, 1, &source, nullptr);
+    glCompileShader(id);
     int success;
     char infoLog[512];
     glGetShaderiv(id, GL_COMPILE_STATUS, &success);
     if (!success) {
         glGetShaderInfoLog(id, 512, nullptr, infoLog);
         std::cerr << "错误::着色器::" << (type == GL_VERTEX_SHADER ? "顶点" : "片段") << "::编译失败\n" << infoLog << std::endl;
-        glDeleteShader(id); // 删除失败的着色器
+        glDeleteShader(id);
         return 0;
     }
     return id;
 }
 
-// 创建链接后的着色器程序
 unsigned int createShaderProgram(const char* vertexSource, const char* fragmentSource) {
-    // 编译顶点和片段着色器
     unsigned int vertexShader = compileShader(GL_VERTEX_SHADER, vertexSource);
     unsigned int fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSource);
-    if (vertexShader == 0 || fragmentShader == 0) {
-        return 0; // 如果任一着色器编译失败，则返回 0
-    }
+    if (vertexShader == 0 || fragmentShader == 0) return 0;
 
-    // 创建着色器程序对象
     unsigned int program = glCreateProgram();
-    // 附加着色器
     glAttachShader(program, vertexShader);
     glAttachShader(program, fragmentShader);
-    // 链接着色器程序
     glLinkProgram(program);
-
-    // 检查链接错误
     int success;
     char infoLog[512];
     glGetProgramiv(program, GL_LINK_STATUS, &success);
     if (!success) {
         glGetProgramInfoLog(program, 512, nullptr, infoLog);
         std::cerr << "错误::着色器::程序::链接失败\n" << infoLog << std::endl;
-        glDeleteProgram(program); // 删除失败的程序
+        glDeleteProgram(program);
         program = 0;
     }
-
-    // 删除不再需要的着色器对象（它们已经链接到程序中了）
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
-
     return program;
 }
+
